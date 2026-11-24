@@ -1,17 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { axe } from "vitest-axe";
-
-import * as toHaveNoViolationsExport from "vitest-axe/matchers";
 import { VideoFacade } from "./video-facade";
-
-// Register vitest-axe matchers
-const matchers = (toHaveNoViolationsExport as any).default || toHaveNoViolationsExport;
-expect.extend(matchers);
-
-
-import { VideoFacade } from "./video-facade";
-
 
 const TEST_VIDEO_ID = "dQw4w9WgXcQ";
 const TEST_VIDEO_TITLE = "Test Video Title";
@@ -95,6 +85,109 @@ describe("VideoFacade", () => {
       // Gradient background div should exist
       const gradientDiv = screen.getByRole("button").querySelector("div");
       expect(gradientDiv).toBeInTheDocument();
+    });
+  });
+
+  describe("thumbnail_ternary_branches", () => {
+    const GRADIENT = ".bg-gradient-to-br";
+
+    it("renders the <img> and no gradient when a thumbnail is available", () => {
+      const { container } = render(
+        <VideoFacade videoId={TEST_VIDEO_ID} platform="youtube" videoTitle={TEST_VIDEO_TITLE} />
+      );
+
+      expect(container.querySelector("img")).toBeInTheDocument();
+      expect(container.querySelector(GRADIENT)).not.toBeInTheDocument();
+    });
+
+    it("renders the gradient fallback and no <img> when there is no thumbnail", () => {
+      const { container } = render(
+        <VideoFacade videoId={TEST_VIDEO_ID} platform="vimeo" videoTitle={TEST_VIDEO_TITLE} />
+      );
+
+      expect(container.querySelector("img")).not.toBeInTheDocument();
+      const gradient = container.querySelector(GRADIENT);
+      expect(gradient).toBeInTheDocument();
+      expect(gradient).toHaveClass("from-blue-600", "to-purple-700", "w-full", "h-full");
+      // Rendered inside the play button, in the thumbnail slot (before the overlay).
+      expect(screen.getByRole("button", { name: `Play ${TEST_VIDEO_TITLE}` })).toContainElement(
+        gradient as HTMLElement
+      );
+    });
+
+    it("keeps the play affordance when showing the gradient fallback", () => {
+      const { container } = render(
+        <VideoFacade videoId={TEST_VIDEO_ID} platform="vimeo" videoTitle={TEST_VIDEO_TITLE} />
+      );
+
+      expect(screen.getByRole("button", { name: `Play ${TEST_VIDEO_TITLE}` })).toBeInTheDocument();
+      expect(screen.getByText("Click to play")).toBeInTheDocument();
+      expect(container.querySelector("svg path")).toBeInTheDocument();
+    });
+
+    it("uses an explicit thumbnailUrl on Vimeo instead of the gradient", () => {
+      const { container } = render(
+        <VideoFacade
+          videoId={TEST_VIDEO_ID}
+          platform="vimeo"
+          thumbnailUrl="https://example.com/vimeo-thumb.jpg"
+          videoTitle={TEST_VIDEO_TITLE}
+        />
+      );
+
+      expect(screen.getByAltText("Product demo video thumbnail")).toHaveAttribute(
+        "src",
+        "https://example.com/vimeo-thumb.jpg"
+      );
+      expect(container.querySelector(GRADIENT)).not.toBeInTheDocument();
+    });
+
+    it("falls back to the gradient for an empty thumbnailUrl (it is not nullish, so no YouTube default is used)", () => {
+      const { container } = render(
+        <VideoFacade
+          videoId={TEST_VIDEO_ID}
+          platform="youtube"
+          thumbnailUrl=""
+          videoTitle={TEST_VIDEO_TITLE}
+        />
+      );
+
+      expect(container.querySelector("img")).not.toBeInTheDocument();
+      expect(container.querySelector(GRADIENT)).toBeInTheDocument();
+    });
+
+    it("keeps the layout-shift and loading attributes on the thumbnail", () => {
+      render(<VideoFacade videoId={TEST_VIDEO_ID} videoTitle={TEST_VIDEO_TITLE} />);
+
+      const img = screen.getByAltText("Product demo video thumbnail");
+      expect(img).toHaveAttribute("width", "640");
+      expect(img).toHaveAttribute("height", "360");
+      expect(img).toHaveAttribute("loading", "lazy");
+      expect(img).toHaveAttribute("decoding", "async");
+      expect(img).toHaveClass("w-full", "h-full", "object-cover");
+    });
+
+    it("mounts the iframe and removes the gradient when played from the fallback state", async () => {
+      const { container } = render(
+        <VideoFacade videoId={TEST_VIDEO_ID} platform="vimeo" videoTitle={TEST_VIDEO_TITLE} />
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: `Play ${TEST_VIDEO_TITLE}` }));
+
+      await waitFor(() => {
+        expect(screen.getByTitle(TEST_VIDEO_TITLE)).toBeInTheDocument();
+      });
+      expect(container.querySelector(GRADIENT)).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: `Play ${TEST_VIDEO_TITLE}` })).not.toBeInTheDocument();
+    });
+
+    it("has no accessibility violations in the gradient fallback state", async () => {
+      const { container } = render(
+        <VideoFacade videoId={TEST_VIDEO_ID} platform="vimeo" videoTitle={TEST_VIDEO_TITLE} />
+      );
+
+      const results = await axe(container);
+      expect(results.violations).toHaveLength(0);
     });
   });
 
@@ -232,6 +325,29 @@ describe("VideoFacade", () => {
     });
   });
 
+  describe("other_keys_on_play_button_do_nothing", () => {
+    it("does not mount the iframe for keys other than Enter and Space", () => {
+      render(
+        <VideoFacade
+          videoId={TEST_VIDEO_ID}
+          platform="youtube"
+          videoTitle={TEST_VIDEO_TITLE}
+        />
+      );
+
+      const playButton = screen.getByRole("button", {
+        name: `Play ${TEST_VIDEO_TITLE}`,
+      });
+
+      for (const key of ["a", "Tab", "Escape", "ArrowDown"]) {
+        fireEvent.keyDown(playButton, { key });
+      }
+
+      expect(screen.queryByTitle(TEST_VIDEO_TITLE)).not.toBeInTheDocument();
+      expect(playButton).toBeInTheDocument();
+    });
+  });
+
   describe("space_key_on_play_button_triggers_video", () => {
     it("pressing Space key on play button mounts iframe", async () => {
       render(
@@ -267,11 +383,7 @@ describe("VideoFacade", () => {
       );
 
       const aspectContainer = container.querySelector(
-
-        "[style*='aspect']"
-
         "[style*='aspect-ratio']"
-
       );
       expect(aspectContainer).toBeInTheDocument();
     });
@@ -293,11 +405,7 @@ describe("VideoFacade", () => {
 
       await waitFor(() => {
         const aspectContainer = container.querySelector(
-
-          "[style*='aspect']"
-
           "[style*='aspect-ratio']"
-
         );
         expect(aspectContainer).toBeInTheDocument();
       });
@@ -313,11 +421,7 @@ describe("VideoFacade", () => {
       );
 
       const aspectContainer = container.querySelector(
-
-        "[style*='aspect']"
-
         "[style*='aspect-ratio']"
-
       );
       expect(aspectContainer).toHaveStyle({ aspectRatio: "4/3" });
     });
@@ -438,22 +542,12 @@ describe("VideoFacade", () => {
         expect(iframe).toBeInTheDocument();
       });
 
-
-      const results = await axe(container, {
-        iframes: false,
-        rules: {
-          "frame-tested": { enabled: false },
-        },
-      });
-      expect(results).toHaveNoViolations();
-
       // axe-core cannot analyse cross-origin iframes in jsdom (they have no
       // real content), so we exclude the iframe element from the scan.
       const results = await axe(container, {
         exclude: [["iframe"]],
       });
       expect(results.violations).toHaveLength(0);
-
     });
   });
 
@@ -520,11 +614,7 @@ describe("VideoFacade", () => {
 
       // Check for overflow on the aspect container
       const aspectContainer = container.querySelector(
-
-        "[style*='aspect']"
-
         "[style*='aspect-ratio']"
-
       );
       expect(aspectContainer).toHaveClass("overflow-hidden");
 
@@ -709,15 +799,8 @@ describe("VideoFacade", () => {
         name: `Play ${TEST_VIDEO_TITLE}`,
       });
 
-
-      const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true });
-      const preventDefaultSpy = vi.spyOn(event, "preventDefault");
-
-      playButton.dispatchEvent(event);
-
       // Use fireEvent which works with React's synthetic event system
       fireEvent.keyDown(playButton, { key: "Enter" });
-
 
       // After Enter, the iframe should have mounted (proves the handler ran)
       await waitFor(() => {
@@ -737,15 +820,8 @@ describe("VideoFacade", () => {
         name: `Play ${TEST_VIDEO_TITLE}`,
       });
 
-
-      const event = new KeyboardEvent("keydown", { key: " ", bubbles: true });
-      const preventDefaultSpy = vi.spyOn(event, "preventDefault");
-
-      playButton.dispatchEvent(event);
-
       // Use fireEvent which works with React's synthetic event system
       fireEvent.keyDown(playButton, { key: " " });
-
 
       // After Space, the iframe should have mounted (proves the handler ran)
       await waitFor(() => {

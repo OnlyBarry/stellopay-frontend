@@ -95,8 +95,9 @@ export function VideoFacade({
             aria-label={`Play ${videoTitle}`}
             className="group absolute inset-0 w-full h-full focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500 focus-visible:ring-offset-2 rounded-xl"
           >
-            {/* Thumbnail */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
+            {/* Thumbnail, or a gradient fallback when there is none (e.g. Vimeo without thumbnailUrl) */}
+            {thumb ? (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={thumb}
                 alt={thumbnailAlt}
